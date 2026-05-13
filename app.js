@@ -1393,6 +1393,9 @@ function createCalendarAssetCard(item) {
   header.appendChild(headerLeft);
   header.appendChild(time);
 
+  const body = document.createElement("div");
+  body.className = "calendar-asset-body";
+
   const thumb = document.createElement("div");
   thumb.className = "calendar-asset-thumb";
   const firstItem = item.items && item.items[0] ? item.items[0] : null;
@@ -1405,6 +1408,9 @@ function createCalendarAssetCard(item) {
   const caption = document.createElement("div");
   caption.className = "calendar-asset-caption";
   caption.textContent = item.notes || "No caption added.";
+
+  body.appendChild(thumb);
+  body.appendChild(caption);
 
   const footer = document.createElement("div");
   footer.className = "calendar-asset-footer";
@@ -1431,8 +1437,7 @@ function createCalendarAssetCard(item) {
   footer.appendChild(deleteBtn);
 
   card.appendChild(header);
-  card.appendChild(thumb);
-  card.appendChild(caption);
+  card.appendChild(body);
   card.appendChild(footer);
   card.addEventListener("click", () => openCalendarAssetModal(item.id));
 

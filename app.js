@@ -24,6 +24,20 @@ const EMAILJS_TEMPLATE_ID = "template_se516i8";
 const EMAILJS_PUBLIC_KEY  = "RYDxaXRTFKuYUxfYE";
 
 
+// ── Allowed users (anyone not on this list is blocked after login) ──
+const ALLOWED_EMAILS = [
+  "h.mozzi@gmail.com",
+  "marketing.team@ttbl.mt",
+  "marketing@ttbl.mt",
+  "nervous677@gmail.com",
+  "thomas.cuschieri@gmail.com"
+];
+
+function isAllowedUser() {
+  if (!currentUser || !currentUser.email) return false;
+  return ALLOWED_EMAILS.map(e => e.toLowerCase()).includes(currentUser.email.toLowerCase());
+}
+
 // ── Admin accounts (full access + upload) ────────
 const ADMIN_EMAILS = [
   "marketing.team@ttbl.mt",
@@ -264,6 +278,14 @@ function showResetPassword() {
 }
 
 async function showApp() {
+  // Block anyone not on the allowed list
+  if (!isAllowedUser()) {
+    await supabaseClient.auth.signOut();
+    loginError.textContent = "Access denied. Your account is not authorised to use this portal.";
+    showLogin();
+    return;
+  }
+
   loginScreen.classList.add("hidden");
   appShell.classList.remove("hidden");
   const displayEmail = currentUser.email || "";

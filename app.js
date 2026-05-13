@@ -306,7 +306,7 @@ async function handleLogin(e) {
   const { error } = await supabaseClient.auth.signInWithOAuth({
     provider: "google",
     options: {
-      redirectTo: "https://ttblmarketing.github.io/ttbl-marketing"
+      redirectTo: "https://marketingportal.ttbl.mt"
     }
   });
 
@@ -710,7 +710,7 @@ async function sendNotifications() {
     return;
   }
 
-  const portalUrl = "https://ttblmarketing.github.io/ttbl-marketing";
+  const portalUrl = "https://marketingportal.ttbl.mt";
 
   const assetListLines = pendingAssets.map(a => {
     const uniqueBrands = [...new Set((a.brands || []).map(b => b.brandName))].join(" & ");

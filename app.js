@@ -1394,19 +1394,30 @@ function createCalendarAssetCard(item) {
   header.appendChild(time);
 
   const body = document.createElement("div");
-  body.className = "calendar-asset-body";
+  body.style.cssText = "display:flex;align-items:center;gap:7px;padding:5px 7px;";
 
   const thumb = document.createElement("div");
-  thumb.className = "calendar-asset-thumb";
+  thumb.style.cssText = "width:44px;height:44px;min-width:44px;max-width:44px;flex-shrink:0;border-radius:6px;overflow:hidden;background:#f6f7fb;";
   const firstItem = item.items && item.items[0] ? item.items[0] : null;
   if (firstItem) {
-    thumb.appendChild(createSingleMediaElement(firstItem, "cover"));
+    if (firstItem.type && firstItem.type.startsWith("video/")) {
+      const vidThumb = document.createElement("div");
+      vidThumb.style.cssText = "width:44px;height:44px;background:#0f172a;display:flex;align-items:center;justify-content:center;";
+      vidThumb.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="rgba(255,255,255,0.18)"/><polygon points="10,8 10,16 17,12" fill="white"/></svg>`;
+      thumb.appendChild(vidThumb);
+    } else {
+      const img = document.createElement("img");
+      img.src = firstItem.data;
+      img.alt = firstItem.name || "thumb";
+      img.style.cssText = "width:44px;height:44px;object-fit:cover;object-position:center top;display:block;";
+      thumb.appendChild(img);
+    }
   } else {
-    thumb.innerHTML = `<div class="preview-placeholder">No preview</div>`;
+    thumb.innerHTML = `<div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;font-size:9px;color:#999;">No preview</div>`;
   }
 
   const caption = document.createElement("div");
-  caption.className = "calendar-asset-caption";
+  caption.style.cssText = "font-size:11px;color:#475467;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;flex:1;min-width:0;";
   caption.textContent = item.notes || "No caption added.";
 
   body.appendChild(thumb);

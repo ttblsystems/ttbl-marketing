@@ -12,9 +12,13 @@ const ALLOWED_USERS = [
   "Humbert Mozzi"
 ];
 
-// ── Notification email (testing — update to full list later) ──
+// ── Notification emails ──
 const NOTIFICATION_EMAILS = [
-  "thomas@ttbl.mt"
+  "h.mozzi@gmail.com",
+  "marketing.team@ttbl.mt",
+  "marketing@ttbl.mt",
+  "nervous677@gmail.com",
+  "thomas.cuschieri@gmail.com"
 ];
 
 // ── EmailJS config ────────────────────────────────
@@ -178,8 +182,6 @@ async function boot() {
 
   // Check if already logged in
   const { data: { session } } = await supabaseClient.auth.getSession();
-  console.log("[BOOT] hash:", window.location.hash.substring(0, 50));
-  console.log("[BOOT] session:", session ? session.user.email : "none");
   let appBooted = false;
   if (session) {
     currentUser = session.user;
@@ -191,7 +193,6 @@ async function boot() {
 
   // Listen for auth state changes
   supabaseClient.auth.onAuthStateChange((event, session) => {
-    console.log("[AUTH]", event, session ? session.user.email : "none");
     if (session) {
       currentUser = session.user;
       // Skip if we already booted from getSession() above (avoids double load on first visit)

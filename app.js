@@ -429,15 +429,31 @@ async function persistItem(item) {
   }
 }
 
+function extractStoragePath(url) {
+  // Convert old public URLs to storage paths
+  // e.g. https://xxx.supabase.co/storage/v1/object/public/media/abc/0.jpg -> abc/0.jpg
+  if (!url || !url.startsWith("http")) return url;
+  const marker = "/object/public/media/";
+  const idx = url.indexOf(marker);
+  if (idx !== -1) return decodeURIComponent(url.substring(idx + marker.length).split("?")[0]);
+  return url;
+}
+
 async function resolveSignedUrls(items) {
-  // Generate signed URLs for all file paths (valid 1 hour)
-  const paths = items.map(i => i.data).filter(p => p && !p.startsWith("http"));
-  if (!paths.length) return items;
+  // Normalise all items: convert old public URLs to storage paths first
+  const normalised = items.map(i => ({
+    ...i,
+    data: extractStoragePath(i.data)
+  }));
+
+  // Generate signed URLs for all storage paths (valid 1 hour)
+  const paths = normalised.map(i => i.data).filter(p => p && !p.startsWith("http"));
+  if (!paths.length) return normalised;
   const { data, error } = await supabaseClient.storage.from("media").createSignedUrls(paths, 3600);
-  if (error || !data) return items;
+  if (error || !data) return normalised;
   const urlMap = {};
   data.forEach(entry => { if (entry.signedUrl) urlMap[entry.path] = entry.signedUrl; });
-  return items.map(i => ({
+  return normalised.map(i => ({
     ...i,
     data: urlMap[i.data] || i.data
   }));

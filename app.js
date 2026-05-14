@@ -38,6 +38,20 @@ function isAllowedUser() {
   return ALLOWED_EMAILS.map(e => e.toLowerCase()).includes(currentUser.email.toLowerCase());
 }
 
+// ── Email to display name mapping ────────────
+const EMAIL_DISPLAY_NAMES = {
+  "h.mozzi@gmail.com":           "Humbert Mozzi",
+  "marketing.team@ttbl.mt":      "Marketing Team",
+  "marketing@ttbl.mt":           "Marketing Team",
+  "nervous677@gmail.com":        "Norbert Vella",
+  "thomas.cuschieri@gmail.com":  "Thomas Cuschieri"
+};
+
+function getDisplayName() {
+  if (!currentUser || !currentUser.email) return "Unknown";
+  return EMAIL_DISPLAY_NAMES[currentUser.email.toLowerCase()] || currentUser.email;
+}
+
 // ── Admin accounts (full access + upload) ────────
 const ADMIN_EMAILS = [
   "marketing.team@ttbl.mt",
@@ -622,10 +636,10 @@ async function deleteAsset(id) {
   render();
 }
 
-async function addComment(id, user, text) {
+async function addComment(id, text) {
   const item = media.find(e => e.id === id);
   if (!item) return;
-  if (!ALLOWED_USERS.includes(user)) { alert("Please choose a valid username from the list."); return; }
+  const user = getDisplayName();
   if (!text.trim()) { alert("Please write a comment."); return; }
 
   item.comments.unshift({ id: crypto.randomUUID(), user, text: text.trim(), createdAt: new Date().toISOString() });
@@ -1401,7 +1415,11 @@ function createMediaCard(item) {
   }
 
   commentCount.textContent = `${item.comments.length} comment${item.comments.length === 1 ? "" : "s"}`;
-  commentBtn.addEventListener("click", () => addComment(item.id, commentUser.value, commentText.value));
+  // Set the "Commenting as" label
+  const commentUserName = fragment.querySelector(".comment-user-name");
+  if (commentUserName) commentUserName.textContent = getDisplayName();
+
+  commentBtn.addEventListener("click", () => addComment(item.id, commentText.value));
 
   return fragment;
 }

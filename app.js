@@ -65,11 +65,7 @@ function isAdmin() {
 
 const DEFAULT_UPLOADER = "Marketing Team";
 
-// ── Accounts with upload access ───────────────
-const UPLOADER_EMAILS = [
-  "marketing.team@ttbl.mt",
-  "thomas.cuschieri@ttbl.mt"
-];
+// Upload access is controlled by ADMIN_EMAILS
 
 
 // Passwords removed — delete/edit are admin-only, enforced via isAdmin() check
@@ -177,15 +173,9 @@ async function boot() {
   buildBrandDropdown();
   setupEventListeners();
 
-  // Handle password reset / invite links (tokens in URL hash)
-  const hash = window.location.hash;
-  if (hash.includes("type=recovery") || hash.includes("type=invite") || hash.includes("type=signup")) {
-    const { data: { session } } = await supabaseClient.auth.getSession();
-    if (session) {
-      showResetPassword();
-      return;
-    }
-  }
+  // Password reset flow disabled — Google OAuth only
+  // Clear any stale hash tokens from URL
+  if (window.location.hash) window.location.hash = "";
 
   // Check if already logged in
   const { data: { session } } = await supabaseClient.auth.getSession();
@@ -200,9 +190,7 @@ async function boot() {
 
   // Listen for auth state changes
   supabaseClient.auth.onAuthStateChange((event, session) => {
-    if (event === "PASSWORD_RECOVERY") {
-      showResetPassword();
-    } else if (session) {
+    if (session) {
       currentUser = session.user;
       // Skip if we already booted from getSession() above (avoids double load on first visit)
       if (appBooted) { appBooted = false; return; }
@@ -224,72 +212,7 @@ function showLogin() {
   if (resetScreen) resetScreen.classList.add("hidden");
 }
 
-function showResetPassword() {
-  loginScreen.classList.add("hidden");
-  appShell.classList.add("hidden");
-
-  let resetScreen = document.getElementById("resetScreen");
-  if (!resetScreen) {
-    resetScreen = document.createElement("div");
-    resetScreen.id = "resetScreen";
-    resetScreen.className = "login-screen";
-    resetScreen.innerHTML = `
-      <div class="login-card">
-        <div class="login-logo">
-          <div class="brand-logo">T</div>
-          <div>
-            <h1>TTBL Marketing</h1>
-            <p>Set your new password</p>
-          </div>
-        </div>
-        <form id="resetForm" class="login-form">
-          <div class="field">
-            <label for="newPassword">New password</label>
-            <input type="password" id="newPassword" placeholder="Min. 8 characters" required minlength="8" />
-          </div>
-          <div class="field">
-            <label for="confirmPassword">Confirm password</label>
-            <input type="password" id="confirmPassword" placeholder="Repeat password" required minlength="8" />
-          </div>
-          <p id="resetError" class="login-error"></p>
-          <button type="submit" id="resetBtn" class="primary-btn login-submit-btn">Set password</button>
-        </form>
-      </div>`;
-    document.body.appendChild(resetScreen);
-
-    document.getElementById("resetForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const newPass  = document.getElementById("newPassword").value;
-      const confirm  = document.getElementById("confirmPassword").value;
-      const errorEl  = document.getElementById("resetError");
-      const btn      = document.getElementById("resetBtn");
-
-      if (newPass !== confirm) { errorEl.textContent = "Passwords do not match."; return; }
-
-      btn.disabled = true;
-      btn.textContent = "Saving…";
-      errorEl.textContent = "";
-
-      const { error } = await supabaseClient.auth.updateUser({ password: newPass });
-      if (error) {
-        errorEl.textContent = error.message;
-        btn.disabled = false;
-        btn.textContent = "Set password";
-      } else {
-        // Password set — go straight into the app
-        const { data: { session } } = await supabaseClient.auth.getSession();
-        if (session) {
-          currentUser = session.user;
-          resetScreen.classList.add("hidden");
-          window.location.hash = "";
-          showApp();
-        }
-      }
-    });
-  }
-
-  resetScreen.classList.remove("hidden");
-}
+// Password reset removed — Google OAuth only
 
 async function showApp() {
   // Block anyone not on the allowed list
@@ -367,7 +290,7 @@ async function loadMedia() {
     .select("*")
     .order("created_at", { ascending: false });
 
-  if (error) { console.error("Load error:", error); return []; }
+  if (error) { // Load error suppressed for security return []; }
 
   return (data || []).map(normalizeMediaItem).filter(Boolean);
 }
@@ -424,7 +347,7 @@ async function persistItem(item) {
       file_names:   item.fileNames || []
     });
   if (error) {
-    console.error("Persist error:", error);
+    // Persist error suppressed for security
     alert("Failed to save changes. Please check your connection and try again.");
   }
 }
@@ -529,7 +452,7 @@ Tip: Compressing to under 50MB won't affect visible quality on social media.`);
         .upload(path, file, { cacheControl: "3600", upsert: false, duplex: "half" });
 
       if (uploadError) {
-        console.error("Storage upload error:", uploadError);
+        // Upload error suppressed for security
         const msg = uploadError.message || JSON.stringify(uploadError);
         if (msg.includes("Payload too large") || msg.includes("413")) {
           alert(`Upload failed: "${file.name}" (${mb}MB) exceeds the storage limit.
@@ -609,6 +532,14 @@ async function setApprovers(id, approvers) {
 async function toggleApproval(id, approverName) {
   const item = media.find(e => e.id === id);
   if (!item) return;
+
+  // Security: only allow the logged-in user to toggle their own approval
+  const currentDisplayName = getDisplayName();
+  if (currentDisplayName !== approverName && !isAdmin()) {
+    alert("You can only toggle your own approval.");
+    return;
+  }
+
   if (!item.approvedBy) item.approvedBy = [];
 
   // If not yet an assigned approver, add them first
@@ -810,7 +741,7 @@ async function sendNotifications() {
     btn.textContent = "Notify Approvers";
     alert(`✅ Notification sent to ${NOTIFICATION_EMAILS.length} recipients!`);
   } catch (err) {
-    console.error("Failed to send notification:", err);
+    // Notification error suppressed for security
     btn.disabled = false;
     btn.textContent = "Notify Approvers";
     alert(`Failed to send. Error: ${err.text || err.message || JSON.stringify(err)}`);
@@ -965,19 +896,9 @@ function isArchived(item) {
 function getActiveMedia()   { return media.filter(item => !isArchived(item)); }
 function getArchivedMedia() { return media.filter(item =>  isArchived(item)); }
 
-// Map logged-in email to approver name for filtering
+// Map logged-in email to approver name — uses EMAIL_DISPLAY_NAMES for consistency
 function getCurrentApproverName() {
-  if (!currentUser) return null;
-  const email = currentUser.email.toLowerCase();
-  const map = {
-    "norbert.vella@ttbl.mt":    "Norbert Vella",
-    "thomas.cuschieri@ttbl.mt": "Thomas Cuschieri",
-    "tony.micallef@ttbl.mt":    "Tony Micallef",
-    "humbert.mozzi@ttbl.mt":    "Humbert Mozzi",
-    // fallback — add more as needed
-    "thomas.cuschieri@gmail.com": "Thomas Cuschieri"
-  };
-  return map[email] || null;
+  return getDisplayName();
 }
 
 function getVisibleMedia(pool) {

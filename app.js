@@ -65,7 +65,7 @@ function isAdmin() {
 
 const DEFAULT_UPLOADER = "Marketing Team";
 
-// Upload access is controlled by ADMIN_EMAILS
+// Upload access controlled by ADMIN_EMAILS
 
 
 // Passwords removed — delete/edit are admin-only, enforced via isAdmin() check
@@ -173,8 +173,7 @@ async function boot() {
   buildBrandDropdown();
   setupEventListeners();
 
-  // Password reset flow disabled — Google OAuth only
-  // Clear any stale hash tokens from URL
+  // Password reset disabled — Google OAuth only
   if (window.location.hash) window.location.hash = "";
 
   // Check if already logged in
@@ -215,14 +214,12 @@ function showLogin() {
 // Password reset removed — Google OAuth only
 
 async function showApp() {
-  // Block anyone not on the allowed list
   if (!isAllowedUser()) {
     await supabaseClient.auth.signOut();
     loginError.textContent = "Access denied. Your account is not authorised to use this portal.";
     showLogin();
     return;
   }
-
   loginScreen.classList.add("hidden");
   appShell.classList.remove("hidden");
   const displayEmail = currentUser.email || "";
@@ -290,7 +287,7 @@ async function loadMedia() {
     .select("*")
     .order("created_at", { ascending: false });
 
-  if (error) { // Load error suppressed for security return []; }
+  if (error) { return []; } // Load error suppressed
 
   return (data || []).map(normalizeMediaItem).filter(Boolean);
 }
@@ -347,14 +344,12 @@ async function persistItem(item) {
       file_names:   item.fileNames || []
     });
   if (error) {
-    // Persist error suppressed for security
+    // Persist error suppressed
     alert("Failed to save changes. Please check your connection and try again.");
   }
 }
 
 function extractStoragePath(url) {
-  // Convert old public URLs to storage paths
-  // e.g. https://xxx.supabase.co/storage/v1/object/public/media/abc/0.jpg -> abc/0.jpg
   if (!url || !url.startsWith("http")) return url;
   const marker = "/object/public/media/";
   const idx = url.indexOf(marker);
@@ -363,28 +358,18 @@ function extractStoragePath(url) {
 }
 
 async function resolveSignedUrls(items) {
-  // Normalise all items: convert old public URLs to storage paths first
-  const normalised = items.map(i => ({
-    ...i,
-    data: extractStoragePath(i.data)
-  }));
-
-  // Generate signed URLs for all storage paths (valid 1 hour)
+  const normalised = items.map(i => ({ ...i, data: extractStoragePath(i.data) }));
   const paths = normalised.map(i => i.data).filter(p => p && !p.startsWith("http"));
   if (!paths.length) return normalised;
   const { data, error } = await supabaseClient.storage.from("media").createSignedUrls(paths, 3600);
   if (error || !data) return normalised;
   const urlMap = {};
   data.forEach(entry => { if (entry.signedUrl) urlMap[entry.path] = entry.signedUrl; });
-  return normalised.map(i => ({
-    ...i,
-    data: urlMap[i.data] || i.data
-  }));
+  return normalised.map(i => ({ ...i, data: urlMap[i.data] || i.data }));
 }
 
 async function loadAndRender() {
   media = await loadMedia();
-  // Resolve signed URLs for all assets
   for (const item of media) {
     if (item.items && item.items.length) {
       item.items = await resolveSignedUrls(item.items);
@@ -452,7 +437,7 @@ Tip: Compressing to under 50MB won't affect visible quality on social media.`);
         .upload(path, file, { cacheControl: "3600", upsert: false, duplex: "half" });
 
       if (uploadError) {
-        // Upload error suppressed for security
+        // Upload error suppressed
         const msg = uploadError.message || JSON.stringify(uploadError);
         if (msg.includes("Payload too large") || msg.includes("413")) {
           alert(`Upload failed: "${file.name}" (${mb}MB) exceeds the storage limit.
@@ -466,7 +451,7 @@ Please compress the video or contact your Supabase admin to increase the file si
         throw uploadError;
       }
 
-      // Store the storage path, not the public URL — signed URLs generated on load
+      // Store storage path — signed URLs generated on load
       fileUrls.push(path);
       fileTypes.push(file.type);
       fileNames.push(file.name);
@@ -741,7 +726,7 @@ async function sendNotifications() {
     btn.textContent = "Notify Approvers";
     alert(`✅ Notification sent to ${NOTIFICATION_EMAILS.length} recipients!`);
   } catch (err) {
-    // Notification error suppressed for security
+    // Notification error suppressed
     btn.disabled = false;
     btn.textContent = "Notify Approvers";
     alert(`Failed to send. Error: ${err.text || err.message || JSON.stringify(err)}`);
@@ -1352,7 +1337,7 @@ function createMediaCard(item) {
   }
 
   commentCount.textContent = `${item.comments.length} comment${item.comments.length === 1 ? "" : "s"}`;
-  // Set the "Commenting as" label
+  // Show "Commenting as" label
   const commentUserName = fragment.querySelector(".comment-user-name");
   if (commentUserName) commentUserName.textContent = getDisplayName();
 

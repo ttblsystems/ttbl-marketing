@@ -415,8 +415,28 @@ async function persistItem(item) {
   }
 }
 
+async function resolveSignedUrls(items) {
+  // Generate signed URLs for all file paths (valid 1 hour)
+  const paths = items.map(i => i.data).filter(p => p && !p.startsWith("http"));
+  if (!paths.length) return items;
+  const { data, error } = await supabaseClient.storage.from("media").createSignedUrls(paths, 3600);
+  if (error || !data) return items;
+  const urlMap = {};
+  data.forEach(entry => { if (entry.signedUrl) urlMap[entry.path] = entry.signedUrl; });
+  return items.map(i => ({
+    ...i,
+    data: urlMap[i.data] || i.data
+  }));
+}
+
 async function loadAndRender() {
   media = await loadMedia();
+  // Resolve signed URLs for all assets
+  for (const item of media) {
+    if (item.items && item.items.length) {
+      item.items = await resolveSignedUrls(item.items);
+    }
+  }
   render();
 }
 
@@ -493,8 +513,8 @@ Please compress the video or contact your Supabase admin to increase the file si
         throw uploadError;
       }
 
-      const { data: urlData } = supabaseClient.storage.from("media").getPublicUrl(path);
-      fileUrls.push(urlData.publicUrl);
+      // Store the storage path, not the public URL — signed URLs generated on load
+      fileUrls.push(path);
       fileTypes.push(file.type);
       fileNames.push(file.name);
     }

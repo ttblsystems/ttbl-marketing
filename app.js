@@ -174,7 +174,7 @@ async function boot() {
   setupEventListeners();
 
   // Password reset disabled — Google OAuth only
-  if (window.location.hash) window.location.hash = "";
+  // Note: do NOT clear hash here — Supabase uses it to pass OAuth tokens back
 
   // Check if already logged in
   const { data: { session } } = await supabaseClient.auth.getSession();

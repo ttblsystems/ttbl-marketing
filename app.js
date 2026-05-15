@@ -155,15 +155,15 @@ const BRAND_OPTIONS = [
   { brandName: "AV7 Events",            platform: "instagram" },
   { brandName: "AV7 Events",            platform: "linkedin"  },
   { brandName: "AV7 Events Malta",      platform: "facebook"  },
-  { brandName: "Coffee Fellows Malta",  platform: "facebook"  },
-  { brandName: "Coffee Fellows Malta",  platform: "instagram" },
-  { brandName: "Coffee Fellows Malta",  platform: "linkedin"  },
+  { brandName: "Coffee Fellows",  platform: "facebook"  },
+  { brandName: "Coffee Fellows",  platform: "instagram" },
+  { brandName: "Coffee Fellows",  platform: "linkedin"  },
   { brandName: "Panku Street Food",     platform: "linkedin"  },
   { brandName: "Panku Street Food Malta", platform: "facebook"  },
   { brandName: "Panku Street Food Malta", platform: "instagram" },
   { brandName: "TTBL Ltd",              platform: "linkedin"  },
   { brandName: "Panku Street Food",     platform: "tiktok"    },
-  { brandName: "Coffee Fellows Malta",  platform: "tiktok"    }
+  { brandName: "Coffee Fellows",  platform: "tiktok"    }
 ].sort((a, b) => {
   const n = a.brandName.localeCompare(b.brandName);
   return n !== 0 ? n : getPlatformLabel(a.platform).localeCompare(getPlatformLabel(b.platform));
@@ -706,11 +706,16 @@ async function sendNotifications() {
 
   const assetListLines = pendingAssets.map(a => {
     const uniqueBrands = [...new Set((a.brands || []).map(b => b.brandName))].join(" & ");
-    const platforms    = [...new Set((a.brands || []).map(b => b.platform))].join(", ");
-    const date         = a.publishDate || "No date set";
-    return "* " + uniqueBrands + " (" + platforms + ") - Scheduled: " + date;
+    const platformLabels = { instagram: "Instagram", facebook: "Facebook", linkedin: "LinkedIn", tiktok: "TikTok" };
+    const platforms    = [...new Set((a.brands || []).map(b => platformLabels[b.platform] || b.platform))].join(", ");
+    const rawDate      = a.publishDate || null;
+    const formattedDate = rawDate
+      ? new Date(rawDate + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })
+      : "No date set";
+    const time = a.publishTime ? " at " + a.publishTime : "";
+    return "<b>• " + uniqueBrands + "</b> (" + platforms + ") | <b>Scheduled:</b> " + formattedDate + time;
   });
-  const assetList = assetListLines.join(" | ");
+  const assetList = assetListLines.join("\n\n");
 
   const btn = document.getElementById("notifyBtn");
   btn.disabled = true;

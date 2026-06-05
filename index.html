@@ -289,7 +289,13 @@
           <div class="comments-list"></div>
           <div class="comment-form">
             <div class="comment-form-grid">
-              <span class="comment-user-label">Commenting as: <strong class="comment-user-name"></strong></span>
+              <select class="comment-user">
+                <option value="">Select username</option>
+                <option>Norbert Vella</option>
+                <option>Thomas Cuschieri</option>
+                <option>Tony Micallef</option>
+                <option>Humbert Mozzi</option>
+              </select>
             </div>
             <textarea class="comment-text" placeholder="Write feedback for this asset"></textarea>
             <button class="comment-btn" type="button">Add comment</button>
@@ -391,6 +397,6 @@
   <!-- Supabase SDK (must load before app.js) -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
-  <script src="app.js?v=19"></script>
+  <script src="app.js?v=20"></script>
 </body>
 </html>

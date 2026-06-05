@@ -28,7 +28,7 @@ const EMAILJS_TEMPLATE_ID = "template_se516i8";
 const EMAILJS_PUBLIC_KEY  = "RYDxaXRTFKuYUxfYE";
 
 
-// ── Allowed users (anyone not on this list is blocked after login) ──
+// ── Allowed users ──
 const ALLOWED_EMAILS = [
   "h.mozzi@gmail.com",
   "marketing.team@ttbl.mt",
@@ -42,7 +42,6 @@ function isAllowedUser() {
   return ALLOWED_EMAILS.map(e => e.toLowerCase()).includes(currentUser.email.toLowerCase());
 }
 
-// ── Email to display name mapping ────────────
 const EMAIL_DISPLAY_NAMES = {
   "h.mozzi@gmail.com":           "Humbert Mozzi",
   "marketing.team@ttbl.mt":      "Marketing Team",
@@ -154,13 +153,13 @@ const calendarAssetModalBrands   = document.getElementById("calendarAssetModalBr
 const BRAND_OPTIONS = [
   { brandName: "AV7 Events",            platform: "instagram" },
   { brandName: "AV7 Events",            platform: "linkedin"  },
-  { brandName: "AV7 Events Malta",      platform: "facebook"  },
+  { brandName: "AV7 Events",      platform: "facebook"  },
   { brandName: "Coffee Fellows",  platform: "facebook"  },
   { brandName: "Coffee Fellows",  platform: "instagram" },
   { brandName: "Coffee Fellows",  platform: "linkedin"  },
   { brandName: "Panku Street Food",     platform: "linkedin"  },
-  { brandName: "Panku Street Food Malta", platform: "facebook"  },
-  { brandName: "Panku Street Food Malta", platform: "instagram" },
+  { brandName: "Panku Street Food", platform: "facebook"  },
+  { brandName: "Panku Street Food", platform: "instagram" },
   { brandName: "TTBL Ltd",              platform: "linkedin"  },
   { brandName: "Panku Street Food",     platform: "tiktok"    },
   { brandName: "Coffee Fellows",  platform: "tiktok"    }
@@ -178,7 +177,7 @@ async function boot() {
   setupEventListeners();
 
   // Password reset disabled — Google OAuth only
-  // Note: do NOT clear hash here — Supabase uses it to pass OAuth tokens back
+  // Note: do NOT clear hash — Supabase uses it to pass OAuth tokens back
 
   // Check if already logged in
   const { data: { session } } = await supabaseClient.auth.getSession();
@@ -521,14 +520,11 @@ async function setApprovers(id, approvers) {
 async function toggleApproval(id, approverName) {
   const item = media.find(e => e.id === id);
   if (!item) return;
-
-  // Security: only allow the logged-in user to toggle their own approval
   const currentDisplayName = getDisplayName();
   if (currentDisplayName !== approverName && !isAdmin()) {
     alert("You can only toggle your own approval.");
     return;
   }
-
   if (!item.approvedBy) item.approvedBy = [];
 
   // If not yet an assigned approver, add them first
@@ -713,7 +709,7 @@ async function sendNotifications() {
       ? new Date(rawDate + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })
       : "No date set";
     const time = a.publishTime ? " at " + a.publishTime : "";
-    return "<b>• " + uniqueBrands + "</b> (" + platforms + ") | <b>Scheduled:</b> " + formattedDate + time;
+    return "• " + uniqueBrands + " (" + platforms + ")  —  Scheduled: " + formattedDate + time;
   });
   const assetList = assetListLines.join("\n\n");
 
@@ -890,7 +886,6 @@ function isArchived(item) {
 function getActiveMedia()   { return media.filter(item => !isArchived(item)); }
 function getArchivedMedia() { return media.filter(item =>  isArchived(item)); }
 
-// Map logged-in email to approver name — uses EMAIL_DISPLAY_NAMES for consistency
 function getCurrentApproverName() {
   return getDisplayName();
 }
@@ -1346,10 +1341,8 @@ function createMediaCard(item) {
   }
 
   commentCount.textContent = `${item.comments.length} comment${item.comments.length === 1 ? "" : "s"}`;
-  // Show "Commenting as" label
   const commentUserName = fragment.querySelector(".comment-user-name");
   if (commentUserName) commentUserName.textContent = getDisplayName();
-
   commentBtn.addEventListener("click", () => addComment(item.id, commentText.value));
 
   return fragment;
@@ -1386,7 +1379,6 @@ function createCalendarAssetCard(item) {
 
   const body = document.createElement("div");
   body.style.cssText = "display:flex;align-items:center;gap:7px;padding:5px 7px;";
-
   const thumb = document.createElement("div");
   thumb.style.cssText = "width:44px;height:44px;min-width:44px;max-width:44px;flex-shrink:0;border-radius:6px;overflow:hidden;background:#f6f7fb;";
   const firstItem = item.items && item.items[0] ? item.items[0] : null;
@@ -1406,14 +1398,11 @@ function createCalendarAssetCard(item) {
   } else {
     thumb.innerHTML = `<div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;font-size:9px;color:#999;">No preview</div>`;
   }
-
   const caption = document.createElement("div");
   caption.style.cssText = "font-size:11px;color:#475467;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;flex:1;min-width:0;";
   caption.textContent = item.notes || "No caption added.";
-
   body.appendChild(thumb);
   body.appendChild(caption);
-
   const footer = document.createElement("div");
   footer.className = "calendar-asset-footer";
 

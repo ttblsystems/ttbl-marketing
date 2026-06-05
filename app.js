@@ -570,10 +570,8 @@ async function deleteAsset(id) {
 
 async function addComment(id, text) {
   const item = media.find(e => e.id === id);
-  if (!item) return;
+  if (!item || !text.trim()) return;
   const user = getDisplayName();
-  if (!text.trim()) { alert("Please write a comment."); return; }
-
   item.comments.unshift({ id: crypto.randomUUID(), user, text: text.trim(), createdAt: new Date().toISOString() });
   await persistItem(item);
   render();
@@ -1343,7 +1341,16 @@ function createMediaCard(item) {
   commentCount.textContent = `${item.comments.length} comment${item.comments.length === 1 ? "" : "s"}`;
   const commentUserName = fragment.querySelector(".comment-user-name");
   if (commentUserName) commentUserName.textContent = getDisplayName();
-  commentBtn.addEventListener("click", () => addComment(item.id, commentText.value));
+  commentBtn.addEventListener("click", async () => {
+    const text = commentText.value;
+    if (!text.trim()) { alert("Please write a comment."); return; }
+    commentBtn.disabled = true;
+    commentBtn.textContent = "Saving…";
+    commentText.value = "";
+    await addComment(item.id, text);
+    commentBtn.disabled = false;
+    commentBtn.textContent = "Add comment";
+  });
 
   return fragment;
 }

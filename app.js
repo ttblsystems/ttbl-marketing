@@ -242,7 +242,7 @@ async function showApp() {
 
   // Clear any existing polling interval before starting a new one
   if (pollingInterval) clearInterval(pollingInterval);
-  pollingInterval = setInterval(loadAndRender, 60000);
+  pollingInterval = setInterval(loadAndRender, 300000); // 5 minutes — reduced to save egress
 
   // Unsubscribe any existing channel before re-subscribing
   if (realtimeChannel) supabaseClient.removeChannel(realtimeChannel);
@@ -360,15 +360,40 @@ function extractStoragePath(url) {
   return url;
 }
 
+// Cache signed URLs in memory so repeated polls don't regenerate them
+// (regenerating = new token = browser re-downloads the file = wasted egress)
+const signedUrlCache = new Map(); // path -> { url, expiresAt }
+const SIGNED_URL_TTL_MS = 3600 * 1000; // matches the 1hr signed URL expiry
+const SIGNED_URL_REFRESH_BUFFER_MS = 5 * 60 * 1000; // refresh 5 min before expiry
+
 async function resolveSignedUrls(items) {
   const normalised = items.map(i => ({ ...i, data: extractStoragePath(i.data) }));
-  const paths = normalised.map(i => i.data).filter(p => p && !p.startsWith("http"));
-  if (!paths.length) return normalised;
-  const { data, error } = await supabaseClient.storage.from("media").createSignedUrls(paths, 3600);
-  if (error || !data) return normalised;
-  const urlMap = {};
-  data.forEach(entry => { if (entry.signedUrl) urlMap[entry.path] = entry.signedUrl; });
-  return normalised.map(i => ({ ...i, data: urlMap[i.data] || i.data }));
+  const now = Date.now();
+
+  // Only fetch signed URLs for paths not already cached and still valid
+  const pathsNeeded = normalised
+    .map(i => i.data)
+    .filter(p => p && !p.startsWith("http"))
+    .filter(p => {
+      const cached = signedUrlCache.get(p);
+      return !cached || (cached.expiresAt - now) < SIGNED_URL_REFRESH_BUFFER_MS;
+    });
+
+  if (pathsNeeded.length) {
+    const { data, error } = await supabaseClient.storage.from("media").createSignedUrls(pathsNeeded, 3600);
+    if (!error && data) {
+      data.forEach(entry => {
+        if (entry.signedUrl) {
+          signedUrlCache.set(entry.path, { url: entry.signedUrl, expiresAt: now + SIGNED_URL_TTL_MS });
+        }
+      });
+    }
+  }
+
+  return normalised.map(i => {
+    const cached = signedUrlCache.get(i.data);
+    return { ...i, data: cached ? cached.url : i.data };
+  });
 }
 
 async function loadAndRender() {

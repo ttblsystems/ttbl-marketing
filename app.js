@@ -46,10 +46,11 @@ const UPLOADER_EMAILS = [
 ];
 
 
-const DELETE_PASSWORD  = "DELETE";
-const EDIT_PASSWORD    = "EDIT";
+// Passwords removed — delete/edit enforced via isAdmin() server-side
 
 let supabaseClient = null;
+let pollingInterval = null;
+let realtimeChannel = null;
 let media      = [];
 let currentUser = null;
 let currentCalendarDate = new Date();
@@ -163,8 +164,10 @@ async function boot() {
 
   // Check if already logged in
   const { data: { session } } = await supabaseClient.auth.getSession();
+  let appBooted = false;
   if (session) {
     currentUser = session.user;
+    appBooted = true;
     showApp();
   } else {
     showLogin();
@@ -176,12 +179,13 @@ async function boot() {
       showResetPassword();
     } else if (session) {
       currentUser = session.user;
-      // Only show app if not on reset screen
+      if (appBooted) { appBooted = false; return; }
       if (!document.getElementById("resetScreen") || document.getElementById("resetScreen").classList.contains("hidden")) {
         showApp();
       }
     } else {
       currentUser = null;
+      appBooted = false;
       showLogin();
     }
   });
@@ -278,10 +282,12 @@ async function showApp() {
   if (notifyBtn)     notifyBtn.style.display     = admin ? "" : "none";
 
   await loadAndRender();
-  setInterval(loadAndRender, 60000);
 
-  // Real-time subscription — reload when any change happens in DB
-  supabaseClient
+  if (pollingInterval) clearInterval(pollingInterval);
+  pollingInterval = setInterval(loadAndRender, 60000);
+
+  if (realtimeChannel) supabaseClient.removeChannel(realtimeChannel);
+  realtimeChannel = supabaseClient
     .channel("media_changes")
     .on("postgres_changes", { event: "*", schema: "public", table: "media_assets" }, () => {
       loadAndRender();
@@ -312,6 +318,8 @@ async function handleLogin(e) {
 }
 
 async function handleLogout() {
+  if (pollingInterval) { clearInterval(pollingInterval); pollingInterval = null; }
+  if (realtimeChannel) { supabaseClient.removeChannel(realtimeChannel); realtimeChannel = null; }
   await supabaseClient.auth.signOut();
 }
 
@@ -379,15 +387,15 @@ async function persistItem(item) {
       file_types:   item.fileTypes || [],
       file_names:   item.fileNames || []
     });
-  if (error) console.error("Persist error:", error);
+  if (error) {
+    console.error("Persist error:", error);
+    alert("Failed to save changes. Please check your connection and try again.");
+  }
 }
 
 async function loadAndRender() {
-  // Preserve any in-progress editing state before reloading
   const editingIds = new Set(media.filter(m => m.editing).map(m => m.id));
-
   media = await loadMedia();
-
   for (const item of media) {
     if (editingIds.has(item.id)) item.editing = true;
     if (item.items && item.items.length) {
@@ -438,7 +446,7 @@ Tip: Compressing to under 50MB won't affect visible quality on social media.`);
   submitBtn.disabled = true;
 
   try {
-    const id = Date.now();
+    const id = crypto.randomUUID();
     const fileUrls  = [];
     const fileTypes = [];
     const fileNames = [];
@@ -502,6 +510,7 @@ Please compress the video or contact your Supabase admin to increase the file si
     media.unshift(newEntry);
 
     uploadForm.reset();
+    revokePreviewUrl();
     uploaderInput.value = DEFAULT_UPLOADER;
     clearSelectedBrands();
     closeBrandDropdown();
@@ -557,9 +566,8 @@ async function toggleApproval(id, approverName) {
 }
 
 async function deleteAsset(id) {
-  const password = window.prompt("Enter delete password:");
-  if (password === null) return;
-  if (password !== DELETE_PASSWORD) { alert("Incorrect password."); return; }
+  if (!isAdmin()) { alert("Only admins can delete assets."); return; }
+  if (!window.confirm("Are you sure you want to delete this asset? This cannot be undone.")) return;
 
   const item = media.find(m => m.id === id);
   if (item && item.fileUrls) {
@@ -585,13 +593,13 @@ async function addComment(id, user, text) {
   if (!ALLOWED_USERS.includes(user)) { alert("Please choose a valid username from the list."); return; }
   if (!text.trim()) { alert("Please write a comment."); return; }
 
-  item.comments.unshift({ id: Date.now(), user, text: text.trim(), createdAt: new Date().toISOString() });
+  item.comments.unshift({ id: crypto.randomUUID(), user, text: text.trim(), createdAt: new Date().toISOString() });
   await persistItem(item);
   render();
 }
 
 function openEditPanel(id) {
-  if (!requestEditPassword()) return;
+  if (!isAdmin()) { alert("Only admins can edit assets."); return; }
   media.forEach(item => { item.editing = item.id === id; });
   render();
 }
@@ -622,6 +630,8 @@ function setupEventListeners() {
   loginForm.addEventListener("submit", handleLogin);
   if (logoutBtn) logoutBtn.addEventListener("click", handleLogout);
   if (logoutBtnSidebar) logoutBtnSidebar.addEventListener("click", handleLogout);
+  const notifyBtnEl = document.getElementById("notifyBtn");
+  if (notifyBtnEl) notifyBtnEl.addEventListener("click", sendNotifications);
   uploadForm.addEventListener("submit", handleUpload);
   fileInput.addEventListener("change", handleUploadPreview);
   searchInput.addEventListener("input", renderWorkspace);
@@ -848,14 +858,12 @@ function getBrandIconsMarkup(brands) {
   return brands.map(b => getPlatformIconMarkup(b.platform)).join("");
 }
 
-function getAssetTitle() { return ""; }
-
-function requestEditPassword() {
-  const p = window.prompt("Enter edit password:");
-  if (p === null) return false;
-  if (p !== EDIT_PASSWORD) { alert("Incorrect password."); return false; }
-  return true;
+function getAssetTitle(item) {
+  if (!item) return "";
+  const uniqueBrands = [...new Set((item.brands || []).map(b => b.brandName))];
+  return uniqueBrands.length ? uniqueBrands.join(" & ") : "Untitled asset";
 }
+
 
 function formatDateTime(dateValue, timeValue) {
   if (!dateValue || !timeValue) return "No scheduled time";
@@ -928,7 +936,14 @@ function getFilteredMedia() {
 
 // ── Upload preview ────────────────────────────
 
+let _previewObjectUrl = null;
+
+function revokePreviewUrl() {
+  if (_previewObjectUrl) { URL.revokeObjectURL(_previewObjectUrl); _previewObjectUrl = null; }
+}
+
 function handleUploadPreview() {
+  revokePreviewUrl();
   const files = Array.from(fileInput.files || []);
   if (!files.length) {
     uploadPreview.className = "upload-preview empty";
@@ -975,9 +990,9 @@ function handleUploadPreview() {
     });
     return;
   }
-  const url = URL.createObjectURL(files[0]);
+  _previewObjectUrl = URL.createObjectURL(files[0]);
   uploadPreview.className = "upload-preview";
-  uploadPreview.innerHTML = `<video src="${url}" controls preload="metadata"></video>`;
+  uploadPreview.innerHTML = `<video src="${_previewObjectUrl}" controls preload="metadata" playsinline webkit-playsinline></video>`;
 }
 
 // ── Stats ─────────────────────────────────────

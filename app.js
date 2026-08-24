@@ -1,9 +1,11 @@
 // ─────────────────────────────────────────────
 //  TTBL Marketing — Supabase edition
+//  Replace YOUR_SUPABASE_URL and YOUR_SUPABASE_ANON_KEY
+//  with the values from Supabase → Settings → API
 // ─────────────────────────────────────────────
 
 const SUPABASE_URL  = "https://nbkuodfeivdqmgyezsba.supabase.co";
-const SUPABASE_ANON = "sb_publishable_WuXppm8NFE3f5UsGVMbp8w_YEnurFnk";
+const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5ia3VvZGZlaXZkcW1neWV6c2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMzOTgxMzgsImV4cCI6MjA4ODk3NDEzOH0.tT1RLsBOaPNcmp10NmjvNMQycWXbBmeYCmMYuwAXTB0";
 
 const ALLOWED_USERS = [
   "Norbert Vella",
@@ -12,13 +14,9 @@ const ALLOWED_USERS = [
   "Humbert Mozzi"
 ];
 
-// ── Notification emails ──
+// ── Notification email (testing — update to full list later) ──
 const NOTIFICATION_EMAILS = [
-  "h.mozzi@gmail.com",
-  "marketing.team@ttbl.mt",
-  "marketing@ttbl.mt",
-  "nervous677@gmail.com",
-  "thomas.cuschieri@gmail.com"
+  "thomas@ttbl.mt"
 ];
 
 // ── EmailJS config ────────────────────────────────
@@ -27,33 +25,6 @@ const EMAILJS_SERVICE_ID  = "service_y21mtl8";
 const EMAILJS_TEMPLATE_ID = "template_se516i8";
 const EMAILJS_PUBLIC_KEY  = "RYDxaXRTFKuYUxfYE";
 
-
-// ── Allowed users ──
-const ALLOWED_EMAILS = [
-  "h.mozzi@gmail.com",
-  "marketing.team@ttbl.mt",
-  "marketing@ttbl.mt",
-  "nervous677@gmail.com",
-  "thomas.cuschieri@gmail.com"
-];
-
-function isAllowedUser() {
-  if (!currentUser || !currentUser.email) return false;
-  return ALLOWED_EMAILS.map(e => e.toLowerCase()).includes(currentUser.email.toLowerCase());
-}
-
-const EMAIL_DISPLAY_NAMES = {
-  "h.mozzi@gmail.com":           "Humbert Mozzi",
-  "marketing.team@ttbl.mt":      "Marketing Team",
-  "marketing@ttbl.mt":           "Marketing Team",
-  "nervous677@gmail.com":        "Norbert Vella",
-  "thomas.cuschieri@gmail.com":  "Thomas Cuschieri"
-};
-
-function getDisplayName() {
-  if (!currentUser || !currentUser.email) return "Unknown";
-  return EMAIL_DISPLAY_NAMES[currentUser.email.toLowerCase()] || currentUser.email;
-}
 
 // ── Admin accounts (full access + upload) ────────
 const ADMIN_EMAILS = [
@@ -68,13 +39,17 @@ function isAdmin() {
 
 const DEFAULT_UPLOADER = "Marketing Team";
 
-// Upload access controlled by ADMIN_EMAILS
+// ── Accounts with upload access ───────────────
+const UPLOADER_EMAILS = [
+  "marketing.team@ttbl.mt",
+  "thomas.cuschieri@ttbl.mt"
+];
 
 
-// Passwords removed — delete/edit are admin-only, enforced via isAdmin() check
+const DELETE_PASSWORD  = "DELETE";
+const EDIT_PASSWORD    = "EDIT";
 
-let pollingInterval = null;
-let realtimeChannel = null;
+let supabaseClient = null;
 let media      = [];
 let currentUser = null;
 let currentCalendarDate = new Date();
@@ -153,16 +128,16 @@ const calendarAssetModalBrands   = document.getElementById("calendarAssetModalBr
 const BRAND_OPTIONS = [
   { brandName: "AV7 Events",            platform: "instagram" },
   { brandName: "AV7 Events",            platform: "linkedin"  },
-  { brandName: "AV7 Events",      platform: "facebook"  },
-  { brandName: "Coffee Fellows",  platform: "facebook"  },
-  { brandName: "Coffee Fellows",  platform: "instagram" },
-  { brandName: "Coffee Fellows",  platform: "linkedin"  },
+  { brandName: "AV7 Events Malta",      platform: "facebook"  },
+  { brandName: "Coffee Fellows Malta",  platform: "facebook"  },
+  { brandName: "Coffee Fellows Malta",  platform: "instagram" },
+  { brandName: "Coffee Fellows Malta",  platform: "linkedin"  },
   { brandName: "Panku Street Food",     platform: "linkedin"  },
-  { brandName: "Panku Street Food", platform: "facebook"  },
-  { brandName: "Panku Street Food", platform: "instagram" },
+  { brandName: "Panku Street Food Malta", platform: "facebook"  },
+  { brandName: "Panku Street Food Malta", platform: "instagram" },
   { brandName: "TTBL Ltd",              platform: "linkedin"  },
   { brandName: "Panku Street Food",     platform: "tiktok"    },
-  { brandName: "Coffee Fellows",  platform: "tiktok"    }
+  { brandName: "Coffee Fellows Malta",  platform: "tiktok"    }
 ].sort((a, b) => {
   const n = a.brandName.localeCompare(b.brandName);
   return n !== 0 ? n : getPlatformLabel(a.platform).localeCompare(getPlatformLabel(b.platform));
@@ -176,15 +151,20 @@ async function boot() {
   buildBrandDropdown();
   setupEventListeners();
 
-  // Password reset disabled — Google OAuth only
-  // Note: do NOT clear hash — Supabase uses it to pass OAuth tokens back
+  // Handle password reset / invite links (tokens in URL hash)
+  const hash = window.location.hash;
+  if (hash.includes("type=recovery") || hash.includes("type=invite") || hash.includes("type=signup")) {
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (session) {
+      showResetPassword();
+      return;
+    }
+  }
 
   // Check if already logged in
   const { data: { session } } = await supabaseClient.auth.getSession();
-  let appBooted = false;
   if (session) {
     currentUser = session.user;
-    appBooted = true;
     showApp();
   } else {
     showLogin();
@@ -192,16 +172,16 @@ async function boot() {
 
   // Listen for auth state changes
   supabaseClient.auth.onAuthStateChange((event, session) => {
-    if (session) {
+    if (event === "PASSWORD_RECOVERY") {
+      showResetPassword();
+    } else if (session) {
       currentUser = session.user;
-      // Skip if we already booted from getSession() above (avoids double load on first visit)
-      if (appBooted) { appBooted = false; return; }
+      // Only show app if not on reset screen
       if (!document.getElementById("resetScreen") || document.getElementById("resetScreen").classList.contains("hidden")) {
         showApp();
       }
     } else {
       currentUser = null;
-      appBooted = false;
       showLogin();
     }
   });
@@ -214,15 +194,74 @@ function showLogin() {
   if (resetScreen) resetScreen.classList.add("hidden");
 }
 
-// Password reset removed — Google OAuth only
+function showResetPassword() {
+  loginScreen.classList.add("hidden");
+  appShell.classList.add("hidden");
+
+  let resetScreen = document.getElementById("resetScreen");
+  if (!resetScreen) {
+    resetScreen = document.createElement("div");
+    resetScreen.id = "resetScreen";
+    resetScreen.className = "login-screen";
+    resetScreen.innerHTML = `
+      <div class="login-card">
+        <div class="login-logo">
+          <div class="brand-logo">T</div>
+          <div>
+            <h1>TTBL Marketing</h1>
+            <p>Set your new password</p>
+          </div>
+        </div>
+        <form id="resetForm" class="login-form">
+          <div class="field">
+            <label for="newPassword">New password</label>
+            <input type="password" id="newPassword" placeholder="Min. 8 characters" required minlength="8" />
+          </div>
+          <div class="field">
+            <label for="confirmPassword">Confirm password</label>
+            <input type="password" id="confirmPassword" placeholder="Repeat password" required minlength="8" />
+          </div>
+          <p id="resetError" class="login-error"></p>
+          <button type="submit" id="resetBtn" class="primary-btn login-submit-btn">Set password</button>
+        </form>
+      </div>`;
+    document.body.appendChild(resetScreen);
+
+    document.getElementById("resetForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const newPass  = document.getElementById("newPassword").value;
+      const confirm  = document.getElementById("confirmPassword").value;
+      const errorEl  = document.getElementById("resetError");
+      const btn      = document.getElementById("resetBtn");
+
+      if (newPass !== confirm) { errorEl.textContent = "Passwords do not match."; return; }
+
+      btn.disabled = true;
+      btn.textContent = "Saving…";
+      errorEl.textContent = "";
+
+      const { error } = await supabaseClient.auth.updateUser({ password: newPass });
+      if (error) {
+        errorEl.textContent = error.message;
+        btn.disabled = false;
+        btn.textContent = "Set password";
+      } else {
+        // Password set — go straight into the app
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (session) {
+          currentUser = session.user;
+          resetScreen.classList.add("hidden");
+          window.location.hash = "";
+          showApp();
+        }
+      }
+    });
+  }
+
+  resetScreen.classList.remove("hidden");
+}
 
 async function showApp() {
-  if (!isAllowedUser()) {
-    await supabaseClient.auth.signOut();
-    loginError.textContent = "Access denied. Your account is not authorised to use this portal.";
-    showLogin();
-    return;
-  }
   loginScreen.classList.add("hidden");
   appShell.classList.remove("hidden");
   const displayEmail = currentUser.email || "";
@@ -239,14 +278,10 @@ async function showApp() {
   if (notifyBtn)     notifyBtn.style.display     = admin ? "" : "none";
 
   await loadAndRender();
+  setInterval(loadAndRender, 60000);
 
-  // Clear any existing polling interval before starting a new one
-  if (pollingInterval) clearInterval(pollingInterval);
-  pollingInterval = setInterval(loadAndRender, 300000); // 5 minutes — reduced to save egress
-
-  // Unsubscribe any existing channel before re-subscribing
-  if (realtimeChannel) supabaseClient.removeChannel(realtimeChannel);
-  realtimeChannel = supabaseClient
+  // Real-time subscription — reload when any change happens in DB
+  supabaseClient
     .channel("media_changes")
     .on("postgres_changes", { event: "*", schema: "public", table: "media_assets" }, () => {
       loadAndRender();
@@ -265,7 +300,7 @@ async function handleLogin(e) {
   const { error } = await supabaseClient.auth.signInWithOAuth({
     provider: "google",
     options: {
-      redirectTo: "https://marketingportal.ttbl.mt"
+      redirectTo: "https://ttblmarketing.github.io/ttbl-marketing"
     }
   });
 
@@ -277,8 +312,6 @@ async function handleLogin(e) {
 }
 
 async function handleLogout() {
-  if (pollingInterval) { clearInterval(pollingInterval); pollingInterval = null; }
-  if (realtimeChannel) { supabaseClient.removeChannel(realtimeChannel); realtimeChannel = null; }
   await supabaseClient.auth.signOut();
 }
 
@@ -290,7 +323,7 @@ async function loadMedia() {
     .select("*")
     .order("created_at", { ascending: false });
 
-  if (error) { return []; } // Load error suppressed
+  if (error) { console.error("Load error:", error); return []; }
 
   return (data || []).map(normalizeMediaItem).filter(Boolean);
 }
@@ -346,59 +379,17 @@ async function persistItem(item) {
       file_types:   item.fileTypes || [],
       file_names:   item.fileNames || []
     });
-  if (error) {
-    // Persist error suppressed
-    alert("Failed to save changes. Please check your connection and try again.");
-  }
-}
-
-function extractStoragePath(url) {
-  if (!url || !url.startsWith("http")) return url;
-  const marker = "/object/public/media/";
-  const idx = url.indexOf(marker);
-  if (idx !== -1) return decodeURIComponent(url.substring(idx + marker.length).split("?")[0]);
-  return url;
-}
-
-// Cache signed URLs in memory so repeated polls don't regenerate them
-// (regenerating = new token = browser re-downloads the file = wasted egress)
-const signedUrlCache = new Map(); // path -> { url, expiresAt }
-const SIGNED_URL_TTL_MS = 3600 * 1000; // matches the 1hr signed URL expiry
-const SIGNED_URL_REFRESH_BUFFER_MS = 5 * 60 * 1000; // refresh 5 min before expiry
-
-async function resolveSignedUrls(items) {
-  const normalised = items.map(i => ({ ...i, data: extractStoragePath(i.data) }));
-  const now = Date.now();
-
-  // Only fetch signed URLs for paths not already cached and still valid
-  const pathsNeeded = normalised
-    .map(i => i.data)
-    .filter(p => p && !p.startsWith("http"))
-    .filter(p => {
-      const cached = signedUrlCache.get(p);
-      return !cached || (cached.expiresAt - now) < SIGNED_URL_REFRESH_BUFFER_MS;
-    });
-
-  if (pathsNeeded.length) {
-    const { data, error } = await supabaseClient.storage.from("media").createSignedUrls(pathsNeeded, 3600);
-    if (!error && data) {
-      data.forEach(entry => {
-        if (entry.signedUrl) {
-          signedUrlCache.set(entry.path, { url: entry.signedUrl, expiresAt: now + SIGNED_URL_TTL_MS });
-        }
-      });
-    }
-  }
-
-  return normalised.map(i => {
-    const cached = signedUrlCache.get(i.data);
-    return { ...i, data: cached ? cached.url : i.data };
-  });
+  if (error) console.error("Persist error:", error);
 }
 
 async function loadAndRender() {
+  // Preserve any in-progress editing state before reloading
+  const editingIds = new Set(media.filter(m => m.editing).map(m => m.id));
+
   media = await loadMedia();
+
   for (const item of media) {
+    if (editingIds.has(item.id)) item.editing = true;
     if (item.items && item.items.length) {
       item.items = await resolveSignedUrls(item.items);
     }
@@ -447,7 +438,7 @@ Tip: Compressing to under 50MB won't affect visible quality on social media.`);
   submitBtn.disabled = true;
 
   try {
-    const id = crypto.randomUUID();
+    const id = Date.now();
     const fileUrls  = [];
     const fileTypes = [];
     const fileNames = [];
@@ -465,7 +456,7 @@ Tip: Compressing to under 50MB won't affect visible quality on social media.`);
         .upload(path, file, { cacheControl: "3600", upsert: false, duplex: "half" });
 
       if (uploadError) {
-        // Upload error suppressed
+        console.error("Storage upload error:", uploadError);
         const msg = uploadError.message || JSON.stringify(uploadError);
         if (msg.includes("Payload too large") || msg.includes("413")) {
           alert(`Upload failed: "${file.name}" (${mb}MB) exceeds the storage limit.
@@ -479,8 +470,8 @@ Please compress the video or contact your Supabase admin to increase the file si
         throw uploadError;
       }
 
-      // Store storage path — signed URLs generated on load
-      fileUrls.push(path);
+      const { data: urlData } = supabaseClient.storage.from("media").getPublicUrl(path);
+      fileUrls.push(urlData.publicUrl);
       fileTypes.push(file.type);
       fileNames.push(file.name);
     }
@@ -511,7 +502,6 @@ Please compress the video or contact your Supabase admin to increase the file si
     media.unshift(newEntry);
 
     uploadForm.reset();
-    revokePreviewUrl();
     uploaderInput.value = DEFAULT_UPLOADER;
     clearSelectedBrands();
     closeBrandDropdown();
@@ -545,11 +535,6 @@ async function setApprovers(id, approvers) {
 async function toggleApproval(id, approverName) {
   const item = media.find(e => e.id === id);
   if (!item) return;
-  const currentDisplayName = getDisplayName();
-  if (currentDisplayName !== approverName && !isAdmin()) {
-    alert("You can only toggle your own approval.");
-    return;
-  }
   if (!item.approvedBy) item.approvedBy = [];
 
   // If not yet an assigned approver, add them first
@@ -572,8 +557,9 @@ async function toggleApproval(id, approverName) {
 }
 
 async function deleteAsset(id) {
-  if (!isAdmin()) { alert("Only admins can delete assets."); return; }
-  if (!window.confirm("Are you sure you want to delete this asset? This cannot be undone.")) return;
+  const password = window.prompt("Enter delete password:");
+  if (password === null) return;
+  if (password !== DELETE_PASSWORD) { alert("Incorrect password."); return; }
 
   const item = media.find(m => m.id === id);
   if (item && item.fileUrls) {
@@ -593,17 +579,19 @@ async function deleteAsset(id) {
   render();
 }
 
-async function addComment(id, text) {
+async function addComment(id, user, text) {
   const item = media.find(e => e.id === id);
-  if (!item || !text.trim()) return;
-  const user = getDisplayName();
-  item.comments.unshift({ id: crypto.randomUUID(), user, text: text.trim(), createdAt: new Date().toISOString() });
+  if (!item) return;
+  if (!ALLOWED_USERS.includes(user)) { alert("Please choose a valid username from the list."); return; }
+  if (!text.trim()) { alert("Please write a comment."); return; }
+
+  item.comments.unshift({ id: Date.now(), user, text: text.trim(), createdAt: new Date().toISOString() });
   await persistItem(item);
   render();
 }
 
 function openEditPanel(id) {
-  if (!isAdmin()) { alert("Only admins can edit assets."); return; }
+  if (!requestEditPassword()) return;
   media.forEach(item => { item.editing = item.id === id; });
   render();
 }
@@ -634,8 +622,6 @@ function setupEventListeners() {
   loginForm.addEventListener("submit", handleLogin);
   if (logoutBtn) logoutBtn.addEventListener("click", handleLogout);
   if (logoutBtnSidebar) logoutBtnSidebar.addEventListener("click", handleLogout);
-  const notifyBtn = document.getElementById("notifyBtn");
-  if (notifyBtn) notifyBtn.addEventListener("click", sendNotifications);
   uploadForm.addEventListener("submit", handleUpload);
   fileInput.addEventListener("change", handleUploadPreview);
   searchInput.addEventListener("input", renderWorkspace);
@@ -721,20 +707,15 @@ async function sendNotifications() {
     return;
   }
 
-  const portalUrl = "https://marketingportal.ttbl.mt";
+  const portalUrl = "https://ttblmarketing.github.io/ttbl-marketing";
 
   const assetListLines = pendingAssets.map(a => {
     const uniqueBrands = [...new Set((a.brands || []).map(b => b.brandName))].join(" & ");
-    const platformLabels = { instagram: "Instagram", facebook: "Facebook", linkedin: "LinkedIn", tiktok: "TikTok" };
-    const platforms    = [...new Set((a.brands || []).map(b => platformLabels[b.platform] || b.platform))].join(", ");
-    const rawDate      = a.publishDate || null;
-    const formattedDate = rawDate
-      ? new Date(rawDate + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })
-      : "No date set";
-    const time = a.publishTime ? " at " + a.publishTime : "";
-    return "• " + uniqueBrands + " (" + platforms + ")  —  Scheduled: " + formattedDate + time;
+    const platforms    = [...new Set((a.brands || []).map(b => b.platform))].join(", ");
+    const date         = a.publishDate || "No date set";
+    return "* " + uniqueBrands + " (" + platforms + ") - Scheduled: " + date;
   });
-  const assetList = assetListLines.join("\n\n");
+  const assetList = assetListLines.join(" | ");
 
   const btn = document.getElementById("notifyBtn");
   btn.disabled = true;
@@ -754,7 +735,7 @@ async function sendNotifications() {
     btn.textContent = "Notify Approvers";
     alert(`✅ Notification sent to ${NOTIFICATION_EMAILS.length} recipients!`);
   } catch (err) {
-    // Notification error suppressed
+    console.error("Failed to send notification:", err);
     btn.disabled = false;
     btn.textContent = "Notify Approvers";
     alert(`Failed to send. Error: ${err.text || err.message || JSON.stringify(err)}`);
@@ -867,13 +848,14 @@ function getBrandIconsMarkup(brands) {
   return brands.map(b => getPlatformIconMarkup(b.platform)).join("");
 }
 
-function getAssetTitle(item) {
-  if (!item) return "";
-  const uniqueBrands = [...new Set((item.brands || []).map(b => b.brandName))];
-  return uniqueBrands.length ? uniqueBrands.join(" & ") : "Untitled asset";
+function getAssetTitle() { return ""; }
+
+function requestEditPassword() {
+  const p = window.prompt("Enter edit password:");
+  if (p === null) return false;
+  if (p !== EDIT_PASSWORD) { alert("Incorrect password."); return false; }
+  return true;
 }
-
-
 
 function formatDateTime(dateValue, timeValue) {
   if (!dateValue || !timeValue) return "No scheduled time";
@@ -909,8 +891,19 @@ function isArchived(item) {
 function getActiveMedia()   { return media.filter(item => !isArchived(item)); }
 function getArchivedMedia() { return media.filter(item =>  isArchived(item)); }
 
+// Map logged-in email to approver name for filtering
 function getCurrentApproverName() {
-  return getDisplayName();
+  if (!currentUser) return null;
+  const email = currentUser.email.toLowerCase();
+  const map = {
+    "norbert.vella@ttbl.mt":    "Norbert Vella",
+    "thomas.cuschieri@ttbl.mt": "Thomas Cuschieri",
+    "tony.micallef@ttbl.mt":    "Tony Micallef",
+    "humbert.mozzi@ttbl.mt":    "Humbert Mozzi",
+    // fallback — add more as needed
+    "thomas.cuschieri@gmail.com": "Thomas Cuschieri"
+  };
+  return map[email] || null;
 }
 
 function getVisibleMedia(pool) {
@@ -935,14 +928,7 @@ function getFilteredMedia() {
 
 // ── Upload preview ────────────────────────────
 
-let _previewObjectUrl = null;
-
-function revokePreviewUrl() {
-  if (_previewObjectUrl) { URL.revokeObjectURL(_previewObjectUrl); _previewObjectUrl = null; }
-}
-
 function handleUploadPreview() {
-  revokePreviewUrl();
   const files = Array.from(fileInput.files || []);
   if (!files.length) {
     uploadPreview.className = "upload-preview empty";
@@ -968,7 +954,7 @@ function handleUploadPreview() {
     const mb = file.size / (1024 * 1024);
     if (mb > 50) {
       uploadPreview.className = "upload-preview empty";
-      uploadPreview.innerHTML = `<span style="color:#dc2626;font-weight:700;">❌ "${escapeHtml(file.name)}" is ${Math.round(mb)}MB — over the 50MB limit. Please compress it first using <a href="https://clideo.com/compress-video" target="_blank" rel="noopener noreferrer" style="color:#dc2626;">Clideo</a> or <a href="https://handbrake.fr" target="_blank" rel="noopener noreferrer" style="color:#dc2626;">HandBrake</a>.</span>`;
+      uploadPreview.innerHTML = `<span style="color:#dc2626;font-weight:700;">❌ "${escapeHtml(file.name)}" is ${Math.round(mb)}MB — over the 50MB limit. Please compress it first using <a href="https://clideo.com/compress-video" target="_blank" style="color:#dc2626;">Clideo</a> or <a href="https://handbrake.fr" target="_blank" style="color:#dc2626;">HandBrake</a>.</span>`;
       fileInput.value = "";
       return;
     }
@@ -989,9 +975,9 @@ function handleUploadPreview() {
     });
     return;
   }
-  _previewObjectUrl = URL.createObjectURL(files[0]);
+  const url = URL.createObjectURL(files[0]);
   uploadPreview.className = "upload-preview";
-  uploadPreview.innerHTML = `<video src="${_previewObjectUrl}" controls preload="metadata"></video>`;
+  uploadPreview.innerHTML = `<video src="${url}" controls preload="metadata"></video>`;
 }
 
 // ── Stats ─────────────────────────────────────
@@ -1024,9 +1010,12 @@ function openLightbox(items, startIndex = 0) {
       const vid = document.createElement("video");
       vid.src = item.data;
       vid.controls = true;
-      vid.autoplay = true;
+      vid.playsInline = true;
+      vid.setAttribute("playsinline", "");
+      vid.setAttribute("webkit-playsinline", "");
       vid.style.cssText = "max-width:88vw;max-height:82vh;border-radius:12px;";
       vid.addEventListener("click", e => e.stopPropagation());
+      vid.load();
       mediaWrap.appendChild(vid);
     } else {
       const img = document.createElement("img");
@@ -1121,8 +1110,11 @@ function createSingleMediaElement(item, fit = "contain", onOpen = null) {
       const video = document.createElement("video");
       video.src = item.data;
       video.controls = true;
-      video.autoplay = true;
+      video.playsInline = true;
+      video.setAttribute("playsinline", "");
+      video.setAttribute("webkit-playsinline", "");
       video.style.cssText = "width:100%;height:100%;border-radius:8px;background:#000;";
+      video.load();
       wrap.replaceWith(video);
     });
     return wrap;
@@ -1311,7 +1303,7 @@ function createMediaCard(item) {
   assetNotes.textContent    = item.notes || "No caption added.";
   createdValue.textContent  = formatDate(item.createdAt);
 
-  if (item.editing) mediaBody.appendChild(createEditPanel(item));
+  if (item.editing) mediaBody.prepend(createEditPanel(item));
 
   // Remove the old hidden approver select from template
   if (oldApproverSelect) oldApproverSelect.remove();
@@ -1364,18 +1356,7 @@ function createMediaCard(item) {
   }
 
   commentCount.textContent = `${item.comments.length} comment${item.comments.length === 1 ? "" : "s"}`;
-  const commentUserName = fragment.querySelector(".comment-user-name");
-  if (commentUserName) commentUserName.textContent = getDisplayName();
-  commentBtn.addEventListener("click", async () => {
-    const text = commentText.value;
-    if (!text.trim()) { alert("Please write a comment."); return; }
-    commentBtn.disabled = true;
-    commentBtn.textContent = "Saving…";
-    commentText.value = "";
-    await addComment(item.id, text);
-    commentBtn.disabled = false;
-    commentBtn.textContent = "Add comment";
-  });
+  commentBtn.addEventListener("click", () => addComment(item.id, commentUser.value, commentText.value));
 
   return fragment;
 }
@@ -1409,32 +1390,19 @@ function createCalendarAssetCard(item) {
   header.appendChild(headerLeft);
   header.appendChild(time);
 
-  const body = document.createElement("div");
-  body.style.cssText = "display:flex;align-items:center;gap:7px;padding:5px 7px;";
   const thumb = document.createElement("div");
-  thumb.style.cssText = "width:44px;height:44px;min-width:44px;max-width:44px;flex-shrink:0;border-radius:6px;overflow:hidden;background:#f6f7fb;";
+  thumb.className = "calendar-asset-thumb";
   const firstItem = item.items && item.items[0] ? item.items[0] : null;
   if (firstItem) {
-    if (firstItem.type && firstItem.type.startsWith("video/")) {
-      const vidThumb = document.createElement("div");
-      vidThumb.style.cssText = "width:44px;height:44px;background:#0f172a;display:flex;align-items:center;justify-content:center;";
-      vidThumb.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="12" fill="rgba(255,255,255,0.18)"/><polygon points="10,8 10,16 17,12" fill="white"/></svg>`;
-      thumb.appendChild(vidThumb);
-    } else {
-      const img = document.createElement("img");
-      img.src = firstItem.data;
-      img.alt = firstItem.name || "thumb";
-      img.style.cssText = "width:44px;height:44px;object-fit:cover;object-position:center top;display:block;";
-      thumb.appendChild(img);
-    }
+    thumb.appendChild(createSingleMediaElement(firstItem, "cover"));
   } else {
-    thumb.innerHTML = `<div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;font-size:9px;color:#999;">No preview</div>`;
+    thumb.innerHTML = `<div class="preview-placeholder">No preview</div>`;
   }
+
   const caption = document.createElement("div");
-  caption.style.cssText = "font-size:11px;color:#475467;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;flex:1;min-width:0;";
+  caption.className = "calendar-asset-caption";
   caption.textContent = item.notes || "No caption added.";
-  body.appendChild(thumb);
-  body.appendChild(caption);
+
   const footer = document.createElement("div");
   footer.className = "calendar-asset-footer";
 
@@ -1460,7 +1428,8 @@ function createCalendarAssetCard(item) {
   footer.appendChild(deleteBtn);
 
   card.appendChild(header);
-  card.appendChild(body);
+  card.appendChild(thumb);
+  card.appendChild(caption);
   card.appendChild(footer);
   card.addEventListener("click", () => openCalendarAssetModal(item.id));
 

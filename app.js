@@ -395,6 +395,48 @@ async function persistItem(item) {
   }
 }
 
+function extractStoragePath(url) {
+  if (!url || !url.startsWith("http")) return url;
+  const marker = "/object/public/media/";
+  const idx = url.indexOf(marker);
+  if (idx !== -1) return decodeURIComponent(url.substring(idx + marker.length).split("?")[0]);
+  return url;
+}
+
+// Cache signed URLs to avoid regenerating them on every poll
+const signedUrlCache = new Map();
+const SIGNED_URL_TTL_MS = 3600 * 1000;
+const SIGNED_URL_REFRESH_BUFFER_MS = 5 * 60 * 1000;
+
+async function resolveSignedUrls(items) {
+  const normalised = items.map(i => ({ ...i, data: extractStoragePath(i.data) }));
+  const now = Date.now();
+
+  const pathsNeeded = normalised
+    .map(i => i.data)
+    .filter(p => p && !p.startsWith("http"))
+    .filter(p => {
+      const cached = signedUrlCache.get(p);
+      return !cached || (cached.expiresAt - now) < SIGNED_URL_REFRESH_BUFFER_MS;
+    });
+
+  if (pathsNeeded.length) {
+    const { data, error } = await supabaseClient.storage.from("media").createSignedUrls(pathsNeeded, 3600);
+    if (!error && data) {
+      data.forEach(entry => {
+        if (entry.signedUrl) {
+          signedUrlCache.set(entry.path, { url: entry.signedUrl, expiresAt: now + SIGNED_URL_TTL_MS });
+        }
+      });
+    }
+  }
+
+  return normalised.map(i => {
+    const cached = signedUrlCache.get(i.data);
+    return { ...i, data: cached ? cached.url : i.data };
+  });
+}
+
 async function loadAndRender() {
   const editingIds = new Set(media.filter(m => m.editing).map(m => m.id));
   media = await loadMedia();

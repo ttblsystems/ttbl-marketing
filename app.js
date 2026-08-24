@@ -308,7 +308,7 @@ async function handleLogin(e) {
   const { error } = await supabaseClient.auth.signInWithOAuth({
     provider: "google",
     options: {
-      redirectTo: "https://ttblsystems.github.io/ttbl-marketing"
+      redirectTo: "https://marketingportal.ttbl.mt"
     }
   });
 

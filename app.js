@@ -423,9 +423,16 @@ async function resolveSignedUrls(items) {
   if (pathsNeeded.length) {
     const { data, error } = await supabaseClient.storage.from("media").createSignedUrls(pathsNeeded, 3600);
     if (!error && data) {
-      data.forEach(entry => {
+      data.forEach((entry, idx) => {
         if (entry.signedUrl) {
-          signedUrlCache.set(entry.path, { url: entry.signedUrl, expiresAt: now + SIGNED_URL_TTL_MS });
+          // Cache by both entry.path and the original path we requested
+          // to handle any key mismatch between request and response
+          const key = entry.path || pathsNeeded[idx];
+          signedUrlCache.set(key, { url: entry.signedUrl, expiresAt: now + SIGNED_URL_TTL_MS });
+          // Also store under the original requested path as fallback
+          if (pathsNeeded[idx] && pathsNeeded[idx] !== key) {
+            signedUrlCache.set(pathsNeeded[idx], { url: entry.signedUrl, expiresAt: now + SIGNED_URL_TTL_MS });
+          }
         }
       });
     }

@@ -1,11 +1,9 @@
 // ─────────────────────────────────────────────
 //  TTBL Marketing — Supabase edition
-//  Replace YOUR_SUPABASE_URL and YOUR_SUPABASE_ANON_KEY
-//  with the values from Supabase → Settings → API
 // ─────────────────────────────────────────────
 
 const SUPABASE_URL  = "https://nbkuodfeivdqmgyezsba.supabase.co";
-const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5ia3VvZGZlaXZkcW1neWV6c2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMzOTgxMzgsImV4cCI6MjA4ODk3NDEzOH0.tT1RLsBOaPNcmp10NmjvNMQycWXbBmeYCmMYuwAXTB0";
+const SUPABASE_ANON = "sb_publishable_WuXppm8NFE3f5UsGVMbp8w_YEnurFnk";
 
 const ALLOWED_USERS = [
   "Norbert Vella",
@@ -16,7 +14,11 @@ const ALLOWED_USERS = [
 
 // ── Notification email (testing — update to full list later) ──
 const NOTIFICATION_EMAILS = [
-  "thomas@ttbl.mt"
+  "h.mozzi@gmail.com",
+  "marketing.team@ttbl.mt",
+  "marketing@ttbl.mt",
+  "nervous677@gmail.com",
+  "thomas.cuschieri@gmail.com"
 ];
 
 // ── EmailJS config ────────────────────────────────

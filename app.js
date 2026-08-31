@@ -1,9 +1,11 @@
 // ─────────────────────────────────────────────
 //  TTBL Marketing — Supabase edition
+//  Replace YOUR_SUPABASE_URL and YOUR_SUPABASE_ANON_KEY
+//  with the values from Supabase → Settings → API
 // ─────────────────────────────────────────────
 
 const SUPABASE_URL  = "https://nbkuodfeivdqmgyezsba.supabase.co";
-const SUPABASE_ANON = "sb_publishable_WuXppm8NFE3f5UsGVMbp8w_YEnurFnk";
+const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5ia3VvZGZlaXZkcW1neWV6c2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMzOTgxMzgsImV4cCI6MjA4ODk3NDEzOH0.tT1RLsBOaPNcmp10NmjvNMQycWXbBmeYCmMYuwAXTB0";
 
 const ALLOWED_USERS = [
   "Norbert Vella",
@@ -14,11 +16,7 @@ const ALLOWED_USERS = [
 
 // ── Notification email (testing — update to full list later) ──
 const NOTIFICATION_EMAILS = [
-  "h.mozzi@gmail.com",
-  "marketing.team@ttbl.mt",
-  "marketing@ttbl.mt",
-  "nervous677@gmail.com",
-  "thomas.cuschieri@gmail.com"
+  "thomas@ttbl.mt"
 ];
 
 // ── EmailJS config ────────────────────────────────
@@ -48,11 +46,10 @@ const UPLOADER_EMAILS = [
 ];
 
 
-// Passwords removed — delete/edit enforced via isAdmin() server-side
+const DELETE_PASSWORD  = "DELETE";
+const EDIT_PASSWORD    = "EDIT";
 
 let supabaseClient = null;
-let pollingInterval = null;
-let realtimeChannel = null;
 let media      = [];
 let currentUser = null;
 let currentCalendarDate = new Date();
@@ -166,10 +163,8 @@ async function boot() {
 
   // Check if already logged in
   const { data: { session } } = await supabaseClient.auth.getSession();
-  let appBooted = false;
   if (session) {
     currentUser = session.user;
-    appBooted = true;
     showApp();
   } else {
     showLogin();
@@ -181,13 +176,12 @@ async function boot() {
       showResetPassword();
     } else if (session) {
       currentUser = session.user;
-      if (appBooted) { appBooted = false; return; }
+      // Only show app if not on reset screen
       if (!document.getElementById("resetScreen") || document.getElementById("resetScreen").classList.contains("hidden")) {
         showApp();
       }
     } else {
       currentUser = null;
-      appBooted = false;
       showLogin();
     }
   });
@@ -268,6 +262,20 @@ function showResetPassword() {
 }
 
 async function showApp() {
+  // Check if user is in the allowed list
+  const allowedEmails = [
+    "h.mozzi@gmail.com",
+    "marketing.team@ttbl.mt",
+    "marketing@ttbl.mt",
+    "nervous677@gmail.com",
+    "thomas.cuschieri@gmail.com"
+  ];
+  if (!currentUser || !allowedEmails.includes(currentUser.email.toLowerCase())) {
+    await supabaseClient.auth.signOut();
+    loginError.textContent = "Access denied. Your account is not authorised to use this portal.";
+    showLogin();
+    return;
+  }
   loginScreen.classList.add("hidden");
   appShell.classList.remove("hidden");
   const displayEmail = currentUser.email || "";
@@ -284,12 +292,10 @@ async function showApp() {
   if (notifyBtn)     notifyBtn.style.display     = admin ? "" : "none";
 
   await loadAndRender();
+  setInterval(loadAndRender, 60000);
 
-  if (pollingInterval) clearInterval(pollingInterval);
-  pollingInterval = setInterval(loadAndRender, 60000);
-
-  if (realtimeChannel) supabaseClient.removeChannel(realtimeChannel);
-  realtimeChannel = supabaseClient
+  // Real-time subscription — reload when any change happens in DB
+  supabaseClient
     .channel("media_changes")
     .on("postgres_changes", { event: "*", schema: "public", table: "media_assets" }, () => {
       loadAndRender();
@@ -308,7 +314,7 @@ async function handleLogin(e) {
   const { error } = await supabaseClient.auth.signInWithOAuth({
     provider: "google",
     options: {
-      redirectTo: "https://marketingportal.ttbl.mt"
+      redirectTo: "https://ttblmarketing.github.io/ttbl-marketing"
     }
   });
 
@@ -320,8 +326,6 @@ async function handleLogin(e) {
 }
 
 async function handleLogout() {
-  if (pollingInterval) { clearInterval(pollingInterval); pollingInterval = null; }
-  if (realtimeChannel) { supabaseClient.removeChannel(realtimeChannel); realtimeChannel = null; }
   await supabaseClient.auth.signOut();
 }
 
@@ -389,31 +393,11 @@ async function persistItem(item) {
       file_types:   item.fileTypes || [],
       file_names:   item.fileNames || []
     });
-  if (error) {
-    console.error("Persist error:", error);
-    alert("Failed to save changes. Please check your connection and try again.");
-  }
-}
-
-function resolvePublicUrls(items) {
-  return items.map(i => {
-    // If already a full URL, use as-is
-    if (i.data && i.data.startsWith("http")) return i;
-    // Build public URL from storage path
-    const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/media/${i.data}`;
-    return { ...i, data: publicUrl };
-  });
+  if (error) console.error("Persist error:", error);
 }
 
 async function loadAndRender() {
-  const editingIds = new Set(media.filter(m => m.editing).map(m => m.id));
   media = await loadMedia();
-  for (const item of media) {
-    if (editingIds.has(item.id)) item.editing = true;
-    if (item.items && item.items.length) {
-      item.items = resolvePublicUrls(item.items);
-    }
-  }
   render();
 }
 
@@ -458,7 +442,7 @@ Tip: Compressing to under 50MB won't affect visible quality on social media.`);
   submitBtn.disabled = true;
 
   try {
-    const id = crypto.randomUUID();
+    const id = Date.now();
     const fileUrls  = [];
     const fileTypes = [];
     const fileNames = [];
@@ -522,7 +506,6 @@ Please compress the video or contact your Supabase admin to increase the file si
     media.unshift(newEntry);
 
     uploadForm.reset();
-    revokePreviewUrl();
     uploaderInput.value = DEFAULT_UPLOADER;
     clearSelectedBrands();
     closeBrandDropdown();
@@ -578,8 +561,9 @@ async function toggleApproval(id, approverName) {
 }
 
 async function deleteAsset(id) {
-  if (!isAdmin()) { alert("Only admins can delete assets."); return; }
-  if (!window.confirm("Are you sure you want to delete this asset? This cannot be undone.")) return;
+  const password = window.prompt("Enter delete password:");
+  if (password === null) return;
+  if (password !== DELETE_PASSWORD) { alert("Incorrect password."); return; }
 
   const item = media.find(m => m.id === id);
   if (item && item.fileUrls) {
@@ -605,13 +589,13 @@ async function addComment(id, user, text) {
   if (!ALLOWED_USERS.includes(user)) { alert("Please choose a valid username from the list."); return; }
   if (!text.trim()) { alert("Please write a comment."); return; }
 
-  item.comments.unshift({ id: crypto.randomUUID(), user, text: text.trim(), createdAt: new Date().toISOString() });
+  item.comments.unshift({ id: Date.now(), user, text: text.trim(), createdAt: new Date().toISOString() });
   await persistItem(item);
   render();
 }
 
 function openEditPanel(id) {
-  if (!isAdmin()) { alert("Only admins can edit assets."); return; }
+  if (!requestEditPassword()) return;
   media.forEach(item => { item.editing = item.id === id; });
   render();
 }
@@ -642,8 +626,6 @@ function setupEventListeners() {
   loginForm.addEventListener("submit", handleLogin);
   if (logoutBtn) logoutBtn.addEventListener("click", handleLogout);
   if (logoutBtnSidebar) logoutBtnSidebar.addEventListener("click", handleLogout);
-  const notifyBtnEl = document.getElementById("notifyBtn");
-  if (notifyBtnEl) notifyBtnEl.addEventListener("click", sendNotifications);
   uploadForm.addEventListener("submit", handleUpload);
   fileInput.addEventListener("change", handleUploadPreview);
   searchInput.addEventListener("input", renderWorkspace);
@@ -729,7 +711,7 @@ async function sendNotifications() {
     return;
   }
 
-  const portalUrl = "https://ttblmarketing.github.io/ttbl-marketing";
+  const portalUrl = "https://marketingportal.ttbl.mt";
 
   const assetListLines = pendingAssets.map(a => {
     const uniqueBrands = [...new Set((a.brands || []).map(b => b.brandName))].join(" & ");
@@ -870,12 +852,14 @@ function getBrandIconsMarkup(brands) {
   return brands.map(b => getPlatformIconMarkup(b.platform)).join("");
 }
 
-function getAssetTitle(item) {
-  if (!item) return "";
-  const uniqueBrands = [...new Set((item.brands || []).map(b => b.brandName))];
-  return uniqueBrands.length ? uniqueBrands.join(" & ") : "Untitled asset";
-}
+function getAssetTitle() { return ""; }
 
+function requestEditPassword() {
+  const p = window.prompt("Enter edit password:");
+  if (p === null) return false;
+  if (p !== EDIT_PASSWORD) { alert("Incorrect password."); return false; }
+  return true;
+}
 
 function formatDateTime(dateValue, timeValue) {
   if (!dateValue || !timeValue) return "No scheduled time";
@@ -948,14 +932,7 @@ function getFilteredMedia() {
 
 // ── Upload preview ────────────────────────────
 
-let _previewObjectUrl = null;
-
-function revokePreviewUrl() {
-  if (_previewObjectUrl) { URL.revokeObjectURL(_previewObjectUrl); _previewObjectUrl = null; }
-}
-
 function handleUploadPreview() {
-  revokePreviewUrl();
   const files = Array.from(fileInput.files || []);
   if (!files.length) {
     uploadPreview.className = "upload-preview empty";
@@ -1002,9 +979,9 @@ function handleUploadPreview() {
     });
     return;
   }
-  _previewObjectUrl = URL.createObjectURL(files[0]);
+  const url = URL.createObjectURL(files[0]);
   uploadPreview.className = "upload-preview";
-  uploadPreview.innerHTML = `<video src="${_previewObjectUrl}" controls preload="metadata" playsinline webkit-playsinline></video>`;
+  uploadPreview.innerHTML = `<video src="${url}" controls preload="metadata"></video>`;
 }
 
 // ── Stats ─────────────────────────────────────
@@ -1037,12 +1014,9 @@ function openLightbox(items, startIndex = 0) {
       const vid = document.createElement("video");
       vid.src = item.data;
       vid.controls = true;
-      vid.playsInline = true;
-      vid.setAttribute("playsinline", "");
-      vid.setAttribute("webkit-playsinline", "");
+      vid.autoplay = true;
       vid.style.cssText = "max-width:88vw;max-height:82vh;border-radius:12px;";
       vid.addEventListener("click", e => e.stopPropagation());
-      vid.load();
       mediaWrap.appendChild(vid);
     } else {
       const img = document.createElement("img");
@@ -1137,11 +1111,8 @@ function createSingleMediaElement(item, fit = "contain", onOpen = null) {
       const video = document.createElement("video");
       video.src = item.data;
       video.controls = true;
-      video.playsInline = true;
-      video.setAttribute("playsinline", "");
-      video.setAttribute("webkit-playsinline", "");
+      video.autoplay = true;
       video.style.cssText = "width:100%;height:100%;border-radius:8px;background:#000;";
-      video.load();
       wrap.replaceWith(video);
     });
     return wrap;
@@ -1330,7 +1301,7 @@ function createMediaCard(item) {
   assetNotes.textContent    = item.notes || "No caption added.";
   createdValue.textContent  = formatDate(item.createdAt);
 
-  if (item.editing) mediaBody.prepend(createEditPanel(item));
+  if (item.editing) mediaBody.appendChild(createEditPanel(item));
 
   // Remove the old hidden approver select from template
   if (oldApproverSelect) oldApproverSelect.remove();
